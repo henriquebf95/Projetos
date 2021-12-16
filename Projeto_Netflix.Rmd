@@ -1,0 +1,270 @@
+---
+title: Análise da Saúde Financeira de Uma Empresa - Análise Estatística e Machine
+  Learning em R
+author: "Henrique Brigato Ferreira"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+# Problema de Negócio
+
+**OBJETIVO: ** *Realizar análise da saúde financeira da empresa NETFLIX ao longo dos anos 2012 e 2018 e tirar conclusões sobre a performance e expectativas da empresa do ponto de vista de um investidor.*
+
+Formato dos Dados coletados: Planilha Excel.
+Fonte: https://ir.netflix.net/financials/quarterly-earnings/default.aspx
+
+# Importando dados
+
+Primeiramente, vamos listar os pacotes necessários para este projeto:
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+```
+
+Carregando base de dados que será utilizada para o projeto:
+```{r}
+netflix <- read_excel("Netflix_Data.xlsx",sheet = 1)
+```
+
+Primeira visualização do data frame:
+```{r}
+str(netflix)
+```
+
+# Data Wrangling
+
+Para realizar a analise exploratória dos dados vamos trabalhar com um data frame cópia, assim preservamos os dados caso seja necessário utiliza-los futuramente.
+
+OBS: Percebe-se que coluna "Segment" apresenta apenas um valor, e o mesmo não seria útil neste momento. Optou-se, então, pela remoção do data frame.
+```{r}
+df_netflix <- netflix %>% select(everything(),-last_col())
+```
+
+Para esta análise, decidiu-se trabalhar com a nomenclatura de trimestres.
+Para este fim, foi criada uma funcao que lista os trimestres conforme os anos.
+
+```{r}
+lista_trimestre <- function(ano_i,ano_f){
+  
+  trimestres <- c()
+  
+  for (i in ano_i:ano_f){
+    for (k in 1:4){
+      trimestres <- append(x = trimestres,values =  paste(k,"T",i,sep = ""))
+    }
+  }
+  return(trimestres)
+}
+```
+
+Foi criado uma nova coluna referente a nomenclatura dos trimestres:
+```{r}
+df_netflix$Trimestres <- as.factor(lista_trimestre(12,18))
+```
+
+Reordenando os trimestres:
+```{r}
+df_netflix$Trimestres <- factor(df_netflix$Trimestres,levels = df_netflix$Trimestres)
+```
+
+Para realizar análises "macro" quanto a escala do tempo, vamos agrupar os trimestres com seus respectivos anos criando uma nova coluna denominada "Ano"
+```{r}
+df_netflix$Ano <- paste("20",str_sub(df_netflix$Trimestres, start = -2),sep = "")
+```
+
+Reorganizando data frame com a coluna trimestre e ano
+```{r}
+df_netflix <- df_netflix %>% select(Ano,Trimestres,everything(),-Time)
+```
+
+Como estamos trabalhando no Brasil e este projeto possui como objetivo a clareza de suas informações, optou-se por renomear as variáveis do data frame para o português:
+```{r}
+colnames(df_netflix) <- c("Ano","Trimestres","Qtd_Assinaturas_Total","Qtd_Assinaturas_Pagas",
+                 "Qtd_Assinaturas_Gratuitas","Receita","Custos_Fixos",
+                 "Custo_Marketing","Lucro","Margem",
+                 "Custo_Assinante","Receita_Assinante","Lucros_Assinante")
+```
+
+Percebe-se que há duas colunas de custos. Julgou-se interessante a criação uma coluna "Custos Totais" para auxiliar as análises macro da empresa. 
+```{r}
+df_netflix <- df_netflix %>% mutate(Custo_Total = Custos_Fixos + Custo_Marketing)%>%
+  select(Ano:Custo_Marketing,Custo_Total,everything())
+```
+
+Por fim, o data frame ficará com a seguinte estrutura :
+```{r}
+str(df_netflix)
+map(df_netflix[,1:2],unique)
+#View(df_netflix)
+```
+
+
+# Análise Exploratória dos Dados
+
+**Gráfico 1: **Com os primeiros ajustes no data frame, pode-se iniciar uma análise da saúde financeira da empresa. Para esta etapa, foi elaborado um gráfico que descreve o crescimento das receitas, despesas e lucro ao longo do tempo.
+```{r}
+library(ggplot2)
+
+ggplot(df_netflix, aes(x = Trimestres, y = Receita, group = 1))+
+  geom_line(aes(col="Receita"),size=1.2)+
+  geom_line(aes(y =Custo_Total,col="Custo Total"),size=1.2)+
+  geom_line(aes(y=Lucro,col="Lucro"),size=1.2)+
+  scale_color_manual(values=c("red3", "green2","royalblue2"))+
+  xlab(label = "Trimestres") + 
+  ylab(label = "Moeda $")+
+  theme_light()
+```
+
+**Gráfico 2: **Analisando crescimento dos custos :
+```{r}
+ggplot(df_netflix, aes(x = Trimestres, y = Custo_Total, group = 1))+
+  geom_line(aes(col="Custo_Total"),size=1.2)+
+  geom_line(aes(y =Custos_Fixos,col="Custos Fixos"),size=1.2)+
+  geom_line(aes(y=Custo_Marketing,col="Custo Marketing"),size=1.2)+
+  scale_color_manual(values=c("cyan3", "red3","gray20"))+
+  xlab(label = "Trimestres") + 
+  ylab(label = "Moeda $")+
+  theme_light()
+```
+
+**Gráfico 3: **Analisando relação Investimento / Custo Total em porcentagem :
+```{r}
+df_barplot <- df_netflix[,c(2,7:9)]
+df_barplot$Custos_Fixos <- df_barplot$Custos_Fixos/df_barplot$Custo_Total
+df_barplot$Custo_Marketing <- df_barplot$Custo_Marketing/df_barplot$Custo_Total
+
+df_barplot <- t(df_barplot)
+colnames(df_barplot) <- df_barplot[1,]
+df_barplot <- df_barplot[c(-1,-4),]
+#df_barplot <- as.numeric(df_barplot)
+
+barplot(df_barplot, beside = F,col=c("gray20","cyan3"))
+```
+
+
+
+**Conclusões iniciais**
+
+*1 - Primeiramente, nota-se pelo Gráfico (1) uma empresa bastante saudável, com resultados positivos e crescentes trimestre após trimestre, fato que transmite grandes perspectivas para o curto e médio prazo.*
+
+*2- Percebe-se, também, que o investimento em marketing se deu de forma lateralizada entre os período de 1T12 até 4T17, com lucro em tendência crescente para cada intervalo de tempo (Gráfico 2).*
+
+*3- É  de comum saber que custos/investimentos em marketing são de suma importância para alavancagem de uma empresa. Entrentanto conforme Gráfico (3) temos quedas na porcentagem deste investimento e crescimento nos lucros nos perídos 2012~2017, seguido de um aumento expressivo do investimento com queda nos Lucros. Logo levanta-se o seguinte questionamento:*
+*O investimento em marketing é, de fato, relevante para o aumento dos lucros?*
+
+*Para entender este caso, vamos continuar nossa análise e tentar responder, através de dados, o real impacto desses custos para o Lucro:*
+
+
+# Análise Estatisticas dos Dados
+
+Comparando as duas variáveis de estudo (Custo Marketing x Lucro), pode-se visualizar o seguinte resumos estatístico para cada ano:
+```{r}
+estat_desc <- df_netflix %>% group_by(Ano) %>% summarise(media_marketing = mean(Custo_Marketing),
+                                                         media_lucro = mean(Lucro),
+                                                         desv_marketing = sd(Custo_Marketing),
+                                                         desv_lucro = sd(Lucro))
+
+estat_desc
+```
+
+# Estudo de correlacao -- investimento marketing x receita
+
+**Condicões:**
+ 
+1 - variaveis quantitativas
+```{r}
+str(df_netflix$Custo_Marketing)
+str(df_netflix$Lucro)
+```
+**2 - linearidade**
+
+```{r}
+plot(df_netflix$Custo_Marketing,df_netflix$Lucro)
+```
+
+Apesar da dificuldade de se afirmar categoricamente a linearidade do dados,
+pelo o gráfico aceita-se essa condição
+
+**3 - detectcao de outliers**
+```{r}
+# install.packages("rstatix")
+library(rstatix)
+boxplot(Custo_Marketing ~ Ano,df_netflix)
+```
+```{r}
+boxplot(Lucro ~ Ano,df_netflix)
+```
+
+
+# testes de correlacao Custo_Marketing ~~ Lucro
+
+```{r}
+cor(df_netflix$Custo_Marketing,df_netflix$Lucro)
+```
+
+
+*Percebe-se uma relação de correlação forte e positiva para as duas variáveis em estudo.*
+
+**Modelo de Regressao**
+```{r}
+modelo_reg <- lm(Lucro ~ Custo_Marketing + I(Custo_Marketing^2),df_netflix)
+
+summary(modelo_reg)
+
+```
+**gráfico com a reta de regressao**
+```{r}
+ggplot(df_netflix, aes(x=Custo_Marketing, y=Lucro)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE)
+```
+
+
+```{r}
+qqnorm(resid(modelo_reg))
+```
+
+
+```{r}
+hist(resid(modelo_reg))
+```
+
+
+**Análise de variancia**
+
+Condição: variavel dependente sendo numérica com variavel independente categórica
+
+Existe diferenca entre as médias dos Lucros no decorrer dos anos, alem da padrao --> fator extra? Custo marketing?
+
+Teste de Hipótese: Custo Marketing impacta, tem grande relevância, para o Lucro?
+
+```{r}
+anova <- aov(Lucro ~ Custo_Marketing,df_netflix)
+summary(anova)
+```
+
+```{r}
+anova <- aov(Lucro ~ Ano,df_netflix)
+summary(anova)
+```
+F >> 1 : Alguns valores referentes aos anos possui diferenca significativa em relação aos demais devido ao aumento do Custo em Marketing
+
+
+<!-- # Conclusões Finais -->
+
+<!-- *Percebe-se uma relacao de correlacao entre o investimento em marketing e lucro,* -->
+<!-- *e que apesar de ter ficado cte, os investimentos em marketing (aumento da %)* -->
+<!-- *tendem a potencializar o lucr............ refazero* -->
+
+
+
+
+
+
+
+
+
+
+
